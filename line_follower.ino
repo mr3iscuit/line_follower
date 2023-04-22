@@ -1,105 +1,157 @@
-#include <QTRSensors.h>
 #define led_buzzer 13
-#define buton 7 // baslatma butonunun bağlı olduğu pin numarasını tanımlıyoruz
-#define iralici 2 // ir alicinin bağlanacağı pin
+#define button 7 // button
+#define ir_pin 2 // ir receiver 
 #define dip1 4 // mod anahtarı 1 - mod anahtarlarının bağlı olduğu pin numarasını tanımlıyoruz
 #define dip2 5 // mod anahtarı 2 - mod anahtarlarının bağlı olduğu pin numarasını tanımlıyoruz
 #define dip3 6  // mod anahtarı 3 - mod anahtarlarının bağlı olduğu pin numarasını tanımlıyoruz
-#define solmotor1 3 // sol motor hız1 -  sol motoru kontrol etmek için gerekli pinler
-#define solmotor2 11  // sol motor hız2 - bu iki pinden birine analogwrite ile çıkış yaparsanız motor o yönde döner . 2 pin aynı anda 0 yada 1 olursa motor durur.
-#define sagmotor1 9  // sag motor hız1 -  sag motoru kontrol etmek için gerekli pinler
-#define sagmotor2 10 // sag motor hız2 - bu iki pinden birine analogwrite ile çıkış yaparsanız motor o yönde döner . 2 pin aynı anda 0 yada 1 olursa motor durur.
-uint8_t sensorCount;
-int basla = 0; // robotun durma-çalışma kontrolünü sağlayan bayrak
-int i = 0;
-QTRSensors qtra; // cizgi sensorleri bu pinlere bağlanacak
+#define left_motor1 3 // sol motor hız1 -  sol motoru kontrol etmek için gerekli pinler
+#define left_motor2 11  // sol motor hız2 - bu iki pinden birine analogwrite ile çıkış yaparsanız motor o yönde döner . 2 pin aynı anda 0 yada 1 olursa motor durur.
+#define right_motor1 9  // sag motor hız1 -  sag motoru kontrol etmek için gerekli pinler
+#define right_motor2 10 // sag motor hız2 - bu iki pinden birine analogwrite ile çıkış yaparsanız motor o yönde döner . 2 pin aynı anda 0 yada 1 olursa motor durur.
+#define abs(x) (x>0?x:-x)
 
-int tabanhiz = 200; // robot cizgiyi tam ortaladığı zaman ki hız. (en fazla 255)
-int maxhiz = 200; // donuslerde vb, motorlara uygulanacak en fazla hız.
-float Kp = 0.17;
-float Kd = 3;
-int sonhata = 0;
-int hata = 0;
-int sagmotorpwm = 0;
-int solmotorpwm = 0;
-int zemin = 0; // siyah pist üstüne beyaz çizgi için 1 olmalıdır. Beyaz pist üzerine siyah çizgi için 0 yapın.
-struct Edge {
-  int weight;
-  int connections[6] = {-1};
+namespace utils {
+  struct Edge {
+    // straight line as a Edge of graph model
+    int weight;
+    int connections[6] = {-1};
+  };
+
+  struct DistSensModel {
+    // 4k distance sensor value model
+    int s1 = 0;
+    int s2 = 0;
+    int s3 = 0;
+    int s4 = 0;
+  };
+
+  Edge edges[100];
 };
 
-Edge edges[100];
+void right() {
+  analogWrite(left_motor1, 1023);
+  analogWrite(left_motor2, 0);
+  analogWrite(right_motor1, 0);
+  analogWrite(right_motor2, 1023);
+}
 
-void turnLeft() {}
-void turnRight() {}
-void turn180() {}
+void left() {
+  analogWrite(left_motor1, 0);
+  analogWrite(left_motor2, 1023);
+  analogWrite(right_motor1, 1023);
+  analogWrite(right_motor2, 0);
+}
+
 void forward() {
-
+  analogWrite(left_motor1, 1023);
+  analogWrite(left_motor2, 0);
+  analogWrite(right_motor1, 1023);
+  analogWrite(right_motor2, 0);
 }
-void backward() {}
-void stopAllTheMotors() {}
 
-void motorkontrol(int sagmotorpwm, int solmotorpwm) {
-  if (sagmotorpwm <= 0) {
-    sagmotorpwm = abs(sagmotorpwm);
-    analogWrite(sagmotor1, 0);
-    analogWrite(sagmotor2, sagmotorpwm);
-  }
-  else {
-    analogWrite(sagmotor1, sagmotorpwm);
-    analogWrite(sagmotor2, 0);
-  }
-
-  if (solmotorpwm <= 0) {
-    solmotorpwm = abs(solmotorpwm);
-    analogWrite(solmotor1, solmotorpwm);
-    analogWrite(solmotor2, 0);
-  }
-  else {
-    analogWrite(solmotor1, 0);
-    analogWrite(solmotor2, solmotorpwm);
-  }
+void backward() {
+  analogWrite(left_motor1, 0);
+  analogWrite(left_motor2, 1023);
+  analogWrite(right_motor1, 0);
+  analogWrite(right_motor2, 1023);
 }
-const uint8_t qtpins[] = {A3, A2, A1, A0};
+
+void stop() {
+  analogWrite(left_motor1, 0);
+  analogWrite(left_motor2, 0);
+  analogWrite(right_motor1, 0);
+  analogWrite(right_motor2, 0);
+}
+
+void printDistValues(utils::DistSensModel values) {
+  Serial.print(values.s1);
+  Serial.print(" ");
+  Serial.print(values.s2);
+  Serial.print(" ");
+  Serial.print(values.s3);
+  Serial.print(" ");
+  Serial.print(values.s4);
+  Serial.print(" ");
+  Serial.println();
+  Serial.println();
+}
+
+utils::DistSensModel getDisValues() 
+{
+  utils::DistSensModel values;
+  values.s1 = analogRead(A3);
+  values.s2 = analogRead(A2);
+  values.s3 = analogRead(A1);
+  values.s4 = analogRead(A0);
+  return values;
+}
+
 void setup() {
-  qtra.setSensorPins(qtpins, 4);
-  qtra.setTypeAnalog();
-  pinMode(buton, INPUT_PULLUP);
-  pinMode(iralici, INPUT_PULLUP);
+  Serial.begin(9600);
+  
+  pinMode(button, INPUT_PULLUP);
+  pinMode(ir_pin, INPUT_PULLUP);
+
   pinMode(dip1, INPUT_PULLUP);
   pinMode(dip2, INPUT_PULLUP);
   pinMode(dip3, INPUT_PULLUP);
+
   pinMode(led_buzzer, OUTPUT);
-  pinMode(solmotor1, OUTPUT);
-  pinMode(solmotor2, OUTPUT);
-  pinMode(sagmotor1, OUTPUT);
-  pinMode(sagmotor2, OUTPUT);
+  
+  pinMode(left_motor1, OUTPUT);
+  pinMode(left_motor2, OUTPUT);
+  pinMode(right_motor1, OUTPUT);
+  pinMode(right_motor2, OUTPUT);
+
   tone(led_buzzer, 500, 100);
   delay(50);
   noTone(led_buzzer);
-
-  for (i = 0; i < 80; i++)
-  {
-    if (0 <= i && i < 5)  motorkontrol(-150, 150);
-    if (5 <= i && i  < 15) motorkontrol(150, -150);
-    if (15 <= i && i < 25)  motorkontrol(-150, 150);
-    if (25 <= i && i < 35)  motorkontrol(150, -150);
-    if (35 <= i && i < 45)  motorkontrol(-150, 150);
-    if (45 <= i && i  < 55) motorkontrol(150, -150);
-    if (55 <= i && i < 65)  motorkontrol(-150, 150);
-    if (65 <= i && i < 70)  motorkontrol(150, -150);
-    if ( i >= 70  )  {
-      motorkontrol(0, 0);
-      delay(5);
-    }
-    qtra.calibrate();
-    delay(3);
-  }
-
-  motorkontrol(0, 0);
-  tone(led_buzzer, 3000, 100);
-  delay(50);
-  noTone(led_buzzer);
+/*
+  left();
+  delay(1000);
+  right();
+  delay(1000);
+  forward();
+  delay(1000);
+  stop();
+*/
 }
 
-void loop() {}
+utils::DistSensModel dsv;
+
+void loop() {  
+  while(true) {
+    dsv = getDisValues();
+    printDistValues(dsv);
+    if(dsv.s1 > 200) {
+      left();
+      continue;
+    }
+    if(dsv.s4 > 200) {
+      right();
+      continue;
+    }
+    
+    if(dsv.s2 > 200 || dsv.s3 > 200) {
+      forward();
+      continue;      
+    }
+    if(dsv.s1 < 200 && dsv.s2 < 200 && 
+        dsv.s3 < 200 && dsv.s3 < 200) 
+    {
+      //backward();
+      //continue;      
+    }
+    if(dsv.s1 > 200 && dsv.s2 > 200 && 
+        dsv.s3 > 200 && dsv.s3 > 200) 
+    {
+      stop();
+      continue;
+    }
+    
+  }
+  
+}
+
+
+
